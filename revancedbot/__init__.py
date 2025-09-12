@@ -121,7 +121,6 @@ def run_patcher():
             print(item, item.apkpure_url)
     elif sys.argv[1] == 'fetch':
         fetcher = ApkpureFetcher(Path("/tmp/revancedbot/apk"))
-        jobs = jobs[:3]
         ops = tqdm(jobs, desc="Baixando apks")
         for job in ops:
             ops.set_description(f"Baixando {job.package_id}@{job.package_version or "latest"}")
