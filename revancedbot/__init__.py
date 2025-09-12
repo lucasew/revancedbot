@@ -1,23 +1,57 @@
+import logging
 import sys
 import tempfile
 from pathlib import Path
+import time
 from typing import Optional
 from github import Github
 from dataclasses import dataclass
 import subprocess
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from tqdm import tqdm
 
+logger = logging.getLogger()
 
 @dataclass
 class PatchJob:
     package_id: str
     package_version: Optional[str] # latest if None
 
-    @property
-    def apkpure_url(self):
-        url = f"https://apkpure.com/br/{self.package_id}/"
-        if self.package_version is not None:
-            url += f"download/{self.package_version}"
-        return url
+
+class ApkpureFetcher():
+    def __init__(self, location: Path):
+        location.mkdir(parents=True, exist_ok=True)
+        self.location = location
+        prefs = {
+            "download.default_directory": str(location.resolve()),
+            "download.prompt_for_download": False,
+            "download.directory_upgrade": True,
+            "safebrowsing.enabled": True # without this it blocks because it can't check, anything better? send a PR please!
+        }
+        options = Options()
+        options.add_experimental_option("prefs", prefs)
+        self.driver = webdriver.Chrome(options=options)
+
+    def url_from_job(self, job: PatchJob):
+        return f"https://d.apkpure.com/b/APK/{job.package_id}?version={job.package_version or 'latest'}"
+
+    def fetch(self, job: PatchJob):
+        self.driver.get(self.url_from_job(job))
+
+    def wait_settle(self):
+        while True:
+            logger.info("Checking if downloads are finished")
+            pending = list(self.location.glob("*.crdownload"))
+            if len(pending) == 0:
+                break
+            time.sleep(1)
+        logger.info("Downloads finished, waiting for 5min")
+        time.sleep(5)
+        self.driver.close()
+
 
 def parse_patch_jobs(data):
     for package in data.split("Package name: "):
@@ -78,12 +112,20 @@ class Patcher():
         data = self("list-versions", stdout=subprocess.PIPE).stdout.decode()
         return parse_patch_jobs(data)
 
-
-
 def run_patcher():
+    logging.basicConfig()
     p = Patcher()
+    jobs = list(p.jobs())
     if sys.argv[1] == 'jobs':
-        for item in p.jobs():
+        for item in jobs:
             print(item, item.apkpure_url)
+    elif sys.argv[1] == 'fetch':
+        fetcher = ApkpureFetcher(Path("/tmp/revancedbot/apk"))
+        jobs = jobs[:3]
+        ops = tqdm(jobs, desc="Baixando apks")
+        for job in ops:
+            ops.set_description(f"Baixando {job.package_id}@{job.package_version or "latest"}")
+            fetcher.fetch(job)
+        fetcher.wait_settle()
     else:
         p(*sys.argv[1:])
