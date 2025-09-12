@@ -5,8 +5,12 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "apkpure>=0.3.0",
+    "beautifulsoup4>=4.13.5",
     "fdroidserver>=2.4.2",
     "pygithub>=2.8.1",
+    "requests>=2.32.5",
+    "tqdm>=4.67.1",
 ]
 
 [project.scripts]

@@ -12,6 +12,13 @@ class PatchJob:
     package_id: str
     package_version: Optional[str] # latest if None
 
+    @property
+    def apkpure_url(self):
+        url = f"https://apkpure.com/br/{self.package_id}/"
+        if self.package_version is not None:
+            url += f"download/{self.package_version}"
+        return url
+
 def parse_patch_jobs(data):
     for package in data.split("Package name: "):
         package_parts = package.split("Most common compatible versions:")
@@ -77,6 +84,6 @@ def run_patcher():
     p = Patcher()
     if sys.argv[1] == 'jobs':
         for item in p.jobs():
-            print(item)
+            print(item, item.apkpure_url)
     else:
         p(*sys.argv[1:])
