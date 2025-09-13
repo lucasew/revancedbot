@@ -32,6 +32,7 @@ class ApkpureFetcher():
             "safebrowsing.enabled": True # without this it blocks because it can't check, anything better? send a PR please!
         }
         options = Options()
+        options.add_argument("--headless=new") # for Chrome >= 109
         options.add_experimental_option("prefs", prefs)
         self.driver = webdriver.Chrome(options=options)
 
