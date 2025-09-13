@@ -4,26 +4,25 @@ on:
   workflow_dispatch:
 jobs:
   update-apps:
-  runs-on: ubuntu-latest
-  steps:
-    - name: Checkout
-      uses: actions/checkout@v5
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
 
-    - uses: jdx/mise-action@v3
-    - name: Fetch and patch apks
-      run: uv run --with . repatcher patch-all
+      - uses: jdx/mise-action@v3
+      - name: Fetch and patch apks
+        run: uv run --with . repatcher patch-all
 
-    - name: Make a folder where I put the apks
-      run: |
-        mkdir -p /tmp/RESULT
-        mv /tmp/revancedbot/patched_apks/*.apk /tmp/RESULT
+      - name: Make a folder where I put the apks
+        run: |
+          mkdir -p /tmp/RESULT
+          mv /tmp/revancedbot/patched_apks/*.apk /tmp/RESULT
 
-    - name: Upload APKs as GitHub Pages
-      id: deployment
-      uses: actions/upload-pages-artifact@v3 # or specific "vX.X.X" version tag for this action
-      with:
-        path: /tmp/RESULT
-        
+      - name: Upload APKs as GitHub Pages
+        id: deployment
+        uses: actions/upload-pages-artifact@v3 # or specific "vX.X.X" version tag for this action
+        with:
+          path: /tmp/RESULT     
   deploy:
     environment:
       name: github-pages
