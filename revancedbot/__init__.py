@@ -33,6 +33,7 @@ class ApkpureFetcher():
         }
         options = Options()
         options.add_argument("--headless=new") # for Chrome >= 109
+        options.add_argument("--window-size=1920,1080")
         options.add_experimental_option("prefs", prefs)
         self.driver = webdriver.Chrome(options=options)
 
