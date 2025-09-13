@@ -1,4 +1,3 @@
 [tools]
-chromedriver = "latest"
 java = "latest"
 uv = "latest"
