@@ -49,7 +49,7 @@ class ApkpureFetcher():
             if len(pending) == 0:
                 break
             time.sleep(1)
-        logger.info("Downloads finished, waiting for 5min")
+        logger.info("Downloads finished, waiting for 5s")
         time.sleep(5)
         self.driver.close()
 
