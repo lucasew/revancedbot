@@ -13,7 +13,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from tqdm import tqdm
 
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
 
 @dataclass
 class PatchJob:
@@ -52,22 +52,6 @@ class ApkpureFetcher():
         time.sleep(5)
         self.driver.close()
 
-
-def parse_patch_jobs(data):
-    for package in data.split("Package name: "):
-        package_parts = package.split("Most common compatible versions:")
-        if len(package_parts) != 2:
-            continue
-        package_id = package_parts[0].strip()
-        rest = package_parts[1]
-        for version in rest.split('\n'):
-            version = version.strip().split(' ')[0]
-            if version == '':
-                continue
-            yield PatchJob(package_id=package_id, package_version=None if version == 'Any' else version)
-
-
-
 class Patcher():
     def __init__(self, tool_location: Path =None):
         if tool_location is None:
@@ -102,29 +86,79 @@ class Patcher():
     def __call__(self, *args, stdin=None, stdout=None, stderr=None):
         self._startup()
         return subprocess.run(
-            ["java", "-jar", self.patcher_file, args[0], self.patch_file, *args[1:]],
+            ["java", "-jar", self.patcher_file, *args],
             stdin=stdin,
             stdout=stdout,
             stderr=stderr
         )
     
+    @property
     def jobs(self):
-        data = self("list-versions", stdout=subprocess.PIPE).stdout.decode()
-        return parse_patch_jobs(data)
+        data = self("list-versions", self.patch_file, stdout=subprocess.PIPE).stdout.decode()
+        for package in data.split("Package name: "):
+            package_parts = package.split("Most common compatible versions:")
+            if len(package_parts) != 2:
+                continue
+            package_id = package_parts[0].strip()
+            rest = package_parts[1]
+            for version in rest.split('\n'):
+                version = version.strip().split(' ')[0]
+                if version == '':
+                    continue
+                yield PatchJob(package_id=package_id, package_version=None if version == 'Any' else version)
+
+class App:
+    def __init__(self, root=Path("/tmp/revancedbot"), lowlimit=False):
+        self.root = root
+        self.patcher = Patcher(root/"patcher")
+        self.lowlimit = lowlimit
+        self._jobs = None
+        self._fetched_apks = None
+
+    @property
+    def jobs(self):
+        if self._jobs is None:
+            self._jobs = list(self.patcher.jobs)
+        if self.lowlimit:
+            self._jobs = self._jobs[:3]
+        return self._jobs
+
+    @property
+    def fetched_apks(self):
+        apk_dir = self.root / "downloaded_apks"
+        apk_dir.mkdir(parents=True, exist_ok=True)
+        if self._fetched_apks is None:
+            fetcher = ApkpureFetcher(apk_dir)
+            logger.info("Baixando apks...")
+            for job in self.jobs:
+                logger.info(f"Baixando {job.package_id}@{job.package_version or "latest"}")
+                fetcher.fetch(job)
+            fetcher.wait_settle()
+            self._fetched_apks = list(apk_dir.iterdir())
+        return self._fetched_apks
+    
+    @property
+    def patched_apks(self):
+        apk_dir = self.root / "patched_apks"
+        apk_dir.mkdir(parents=True, exist_ok=True)
+        for fetched_apk in self.fetched_apks:
+            try:
+                logger.info(f"Patching {fetched_apk.name}...")
+                self.patcher("patch", fetched_apk, "-o", apk_dir / fetched_apk.name, f"-p={self.patcher.patch_file}")
+            except:
+                pass
+
+    
 
 def run_patcher():
-    logging.basicConfig()
-    p = Patcher()
-    jobs = list(p.jobs())
+    logging.basicConfig(level=logging.DEBUG)
+    a = App()
     if sys.argv[1] == 'jobs':
-        for item in jobs:
+        for item in a.jobs:
             print(item, item.apkpure_url)
     elif sys.argv[1] == 'fetch':
-        fetcher = ApkpureFetcher(Path("/tmp/revancedbot/apk"))
-        ops = tqdm(jobs, desc="Baixando apks")
-        for job in ops:
-            ops.set_description(f"Baixando {job.package_id}@{job.package_version or "latest"}")
-            fetcher.fetch(job)
-        fetcher.wait_settle()
+        print(a.fetched_apks)
+    elif sys.argv[1] == 'patch-all':
+        print(a.patched_apks)
     else:
-        p(*sys.argv[1:])
+        a.patcher(*sys.argv[1:])
