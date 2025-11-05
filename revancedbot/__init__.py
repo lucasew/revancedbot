@@ -88,7 +88,7 @@ class Patcher():
     def __call__(self, *args, stdin=None, stdout=None, stderr=None):
         self._startup()
         return subprocess.run(
-            ["java", "-jar", self.patcher_file, *args],
+            ["java", "-jar", str(self.patcher_file), *args],
             stdin=stdin,
             stdout=stdout,
             stderr=stderr
@@ -96,7 +96,7 @@ class Patcher():
     
     @property
     def jobs(self):
-        data = self("list-versions", self.patch_file, stdout=subprocess.PIPE).stdout.decode()
+        data = self("list-versions", str(self.patch_file), stdout=subprocess.PIPE).stdout.decode()
         for package in data.split("Package name: "):
             package_parts = package.split("Most common compatible versions:")
             if len(package_parts) != 2:
@@ -146,18 +146,23 @@ class App:
         for fetched_apk in self.fetched_apks:
             try:
                 logger.info(f"Patching {fetched_apk.name}...")
-                self.patcher("patch", fetched_apk, "-o", apk_dir / fetched_apk.name, f"-p={self.patcher.patch_file}")
-            except:
-                pass
+                self.patcher("patch", str(fetched_apk), "-o", str(apk_dir / fetched_apk.name), "-p", str(self.patcher.patch_file))
+            except Exception as e:
+                logger.error(f"Failed to patch {fetched_apk.name}: {e}")
+        return list(apk_dir.glob("*.apk"))
 
     
 
 def run_patcher():
-    logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.INFO)
     a = App()
+    if len(sys.argv) < 2:
+        print("Usage: repatcher [jobs|fetch|patch-all|...]")
+        sys.exit(1)
+
     if sys.argv[1] == 'jobs':
         for item in a.jobs:
-            print(item, item.apkpure_url)
+            print(item)
     elif sys.argv[1] == 'fetch':
         print(a.fetched_apks)
     elif sys.argv[1] == 'patch-all':

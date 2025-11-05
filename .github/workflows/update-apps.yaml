@@ -20,11 +20,14 @@ jobs:
           mv /tmp/revancedbot/patched_apks/*.apk /tmp/RESULT
 
       - name: Upload APKs as GitHub Pages
-        id: deployment
-        uses: actions/upload-pages-artifact@v3 # or specific "vX.X.X" version tag for this action
+        uses: actions/upload-pages-artifact@v3
         with:
-          path: /tmp/RESULT     
+          path: /tmp/RESULT
+
   deploy:
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
