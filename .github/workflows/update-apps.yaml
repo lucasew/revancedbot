@@ -7,9 +7,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
 
-      - uses: jdx/mise-action@v3
+      - uses: jdx/mise-action@d16887ba50704baed7de72bd1e82e04391e4457a # v3
       - uses: nanasess/setup-chromedriver@v2
       - name: Fetch and patch apks
         run: uv run --with . repatcher patch-all
@@ -20,7 +20,7 @@ jobs:
           mv /tmp/revancedbot/patched_apks/*.apk /tmp/RESULT
 
       - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v4
+        uses: peaceiris/actions-gh-pages@4f9cc6602d3f66b9c108549d475ec49e8ef4d45e # v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: /tmp/RESULT
