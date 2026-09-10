@@ -287,6 +287,12 @@ func (a *App) processVersion(ctx context.Context, job revanced.Job, ver string, 
 	return nil
 }
 
+// CheckStockIdentity is the TEC-03 identity gate: stock id match, version prefix.
+func CheckStockIdentity(path, packageID, version string) error {
+	_, err := requireStockIdentity(path, packageID, version)
+	return err
+}
+
 func requireStockIdentity(path, packageID, version string) (apkmeta.Info, error) {
 	info, err := apkmeta.Inspect(path)
 	if err != nil {

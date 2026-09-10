@@ -33,7 +33,12 @@ func TestKeysGenerate_stdoutOneLine(t *testing.T) {
 	const blob = "PASTEABLEBLOB"
 	origCheck, origGen := checkKeyTools, generateKeys
 	checkKeyTools = func() error { return nil }
-	generateKeys = func(string) (string, error) { return blob, nil }
+	generateKeys = func(alias string) (string, error) {
+		if alias != "" {
+			t.Errorf("alias = %q; want empty", alias)
+		}
+		return blob, nil
+	}
 	t.Cleanup(func() {
 		checkKeyTools, generateKeys = origCheck, origGen
 	})
@@ -58,6 +63,13 @@ func TestKeysGenerate_stdoutOneLine(t *testing.T) {
 	}
 	if strings.Contains(stderr, blob) {
 		t.Fatalf("blob leaked onto stderr: %q", stderr)
+	}
+}
+
+func TestKeysGenerate_rejectsAlias(t *testing.T) {
+	cmd := newKeysGenerateCmd()
+	if cmd.Flags().Lookup("alias") != nil {
+		t.Fatal("keys generate must not define --alias")
 	}
 }
 

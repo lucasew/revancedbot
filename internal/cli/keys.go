@@ -24,8 +24,7 @@ func newKeysCmd() *cobra.Command {
 }
 
 func newKeysGenerateCmd() *cobra.Command {
-	var alias string
-	c := &cobra.Command{
+	return &cobra.Command{
 		Use:   "generate",
 		Short: "Generate a keystore and print one pasteable signing secret",
 		Args:  cobra.NoArgs,
@@ -38,7 +37,7 @@ func newKeysGenerateCmd() *cobra.Command {
 			// pasteable secret on stdout. Session still Enter/Close with zero tasks.
 			ctx := ctxOf(cmd)
 			log := logging.GetLogger(ctx)
-			enc, err := generateKeys(alias)
+			enc, err := generateKeys("")
 			if err != nil {
 				return err
 			}
@@ -48,8 +47,6 @@ func newKeysGenerateCmd() *cobra.Command {
 			return nil
 		},
 	}
-	c.Flags().StringVar(&alias, "alias", "revancedbot", "keystore alias")
-	return c
 }
 
 func newKeysValidateCmd() *cobra.Command {
