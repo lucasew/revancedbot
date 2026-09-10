@@ -4,12 +4,16 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/lucasew/revancedbot/internal/app"
 	"github.com/lucasew/revancedbot/internal/download"
+	"github.com/lucasew/revancedbot/internal/osx"
 	"github.com/lucasew/revancedbot/internal/workspace"
 	"github.com/lucasew/workspaced/pkg/logging"
 	"github.com/lucasew/workspaced/pkg/taskgroup"
 	"github.com/spf13/cobra"
 )
+
+var checkStockIdentity = app.CheckStockIdentity
 
 func newDownloadCmd() *cobra.Command {
 	var pkg, ver string
@@ -32,10 +36,13 @@ func newDownloadCmd() *cobra.Command {
 				s.Update(pkg)
 				path := a.WS.StockAPKPath(pkg, ver)
 				if workspace.CacheHit(path) && download.AcceptCached(path) == nil {
-					log.Info("stock cache hit", "path", path)
-					// Machine-readable line for scripts (stdout).
-					fmt.Printf("cache\t%s\n", path)
-					return nil
+					if err := checkStockIdentity(path, pkg, ver); err == nil {
+						log.Info("stock cache hit", "path", path)
+						fmt.Printf("cache\t%s\n", path)
+						return nil
+					}
+					log.Warn("stock cache identity rejected", "path", path)
+					osx.Remove(path)
 				}
 				reg := download.DefaultRegistry(a.Cfg.BrowserCDPURL)
 				order := a.Cfg.DownloaderOrder
@@ -47,6 +54,10 @@ func newDownloadCmd() *cobra.Command {
 					Version:   ver,
 				}, a.WS.StockAPKs)
 				if err != nil {
+					return err
+				}
+				if err := checkStockIdentity(res.Path, pkg, ver); err != nil {
+					osx.Remove(res.Path)
 					return err
 				}
 				log.Info("download ok", "source", res.SourceID, "sha256", res.SHA256, "path", res.Path)

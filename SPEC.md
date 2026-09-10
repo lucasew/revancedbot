@@ -47,14 +47,18 @@ Inherited C (cite the file):
 |----|-------|------|--------|
 | TEC-01 | Subcommand + Repo path + Cache path | Kitchen-sink `run` plus step commands. Live Repo `{repo,metadata,config.yml}` changes only by atomic publish from Cache stage. `revancedbot.yaml` is never written | The type named in the command table |
 | TEC-02 | Command result | Plumbing error → exit 1. Per-package failure is a skip, not a command failure. `run` exits 0 after a successful publish even when every package was skipped. `smoke` exits 1 when zero packages succeed. Machine lines on stdout only for `keys generate`, `list-jobs`, and `download`. Logs on stderr. Session folds logs when the TUI is active | Process status + streams |
-| TEC-03 | Stock package id + preferred versions + downloader order + optional CDP URL | Walk versions top to bottom. For each version walk downloaders in order. First file that passes ValidateAPK wins. CDP is an upgrade: each downloader decides whether it can finish. A downloader that cannot finish MUST fail that downloader only. `revancedbot` MUST continue with the next downloader. Exhausted versions → skip the Job | Stock APK path under Cache. Exhausted → skip |
-| TEC-04 | Cached patches file | Every package the patches advertise is a Job. One success per Job per run. First version that downloads and patches wins. Package work uses Isolate: one fail does not cancel siblings | Job list + per-package outcome |
+| TEC-03 | Stock package id + preferred versions + downloader order + optional CDP URL | Walk versions top to bottom. For each version walk downloaders in order. First file that passes ValidateAPK and stock identity wins. `run`, `smoke`, and `download` share that gate. CDP is an upgrade: each downloader decides whether it can finish. A downloader that cannot finish MUST fail that downloader only. `revancedbot` MUST continue with the next downloader. Exhausted versions → skip the Job | Stock APK path under Cache. Exhausted → skip |
+| TEC-04 | Cached patches file | Every package the patches advertise is a Job. Each `run` and `smoke` shuffles that list before work. One success per Job per run. First version that downloads and patches wins. Package work uses Isolate: one fail does not cancel siblings | Job list + per-package outcome |
 | TEC-05 | Stock APK + SigningBlob + patches | ReVanced CLI applies patches. Package-rename patch always on. F-Droid id is stock id + `.revanced`. After patch, host `apksigner` signs the APK with the same SigningBlob that signs the F-Droid index. ReVanced CLI MUST NOT receive `--keystore` | Patched APK under Cache work |
-| TEC-06 | Pasteable secret | `keys generate` runs `keytool` and prints one blob. A run that signs MUST validate the blob and materialize the keystore only under Cache | SigningBlob; keystore file under Cache |
+| TEC-06 | Pasteable secret | `keys generate` runs `keytool` and prints one blob. The blob alias is `revancedbot`. No operator `--alias`. A run that signs MUST validate the blob and materialize the keystore only under Cache | SigningBlob; keystore file under Cache |
 | TEC-07 | Stage tree + host `fdroid` | Simple-binary `fdroid update` on the stage. Same SigningBlob signs the index. On success, atomic publish into live Repo. Failure leaves the previous publish | Published tree |
 | TEC-08 | Long work on an interactive terminal | Schedule real work through the Session (`Go`, `Map`, `Each`, `Isolate`). TUI starts lazily on the first scheduled task. Same TTY / `CI` / `NO_COLOR` / `TERM=dumb` guards as workspaced. Force TUI with `WORKSPACED_FORCE_TUI`. No `REVANCEDBOT_*` TUI flag. `keys generate` MUST NOT schedule a progress task | Progress UI when a task is scheduled on an interactive terminal. Otherwise logs |
 
-ValidateAPK: size above 1 KiB, ZIP `PK` magic, not HTML, contains `AndroidManifest.xml`. A rejected file is deleted. A Cache name-hit uses the same gate.
+ValidateAPK: size above 1 KiB, ZIP `PK` magic, not HTML, contains `AndroidManifest.xml`.
+
+Stock identity: host `aapt` package id MUST equal the requested stock id. When a version was requested, versionName MUST prefix-match that version (`3.3` accepts `3.3.6`). Empty requested version skips the version check. A rejected file is deleted. A Cache name-hit uses ValidateAPK then stock identity. A Cache hit that fails identity is deleted and fetched again.
+
+Stock id aliases (closed set), applied before fetch: `com.youtube.android` and `com.google.youtube` → `com.google.android.youtube`; `com.youtube.music` → `com.google.android.apps.youtube.music`.
 
 Artifact preference inside one downloader: single APK, then universal / multi-ABI, then broad DPI.
 
@@ -68,6 +72,7 @@ Artifact preference inside one downloader: single APK, then universal / multi-AB
 | TEC-03 HTTP | workspaced `httpclient` + `fetchurl` | adopt | a bare `http.Client` that hides work from the Session | `path:internal/netx`, `path:internal/drivers/prelude.go` |
 | TEC-03 store fetch | built-in downloaders | implement | Aurora, Play | `path:internal/download` |
 | TEC-03 garbage | ValidateAPK | implement | Play-certificate identity | `path:internal/download/validate.go` |
+| TEC-03 identity | host `aapt` | wrap | Play-certificate identity; exact versionName | `path:internal/apkmeta` |
 | TEC-03 browser | `github.com/go-rod/rod` | wrap | rod launcher; in-process Chrome; a workspaced rod factory | none in workspaced `pkg/driver`; pattern `lewtec/fusionsolar-bot` `setupBrowser` |
 | TEC-04 jobs | ReVanced CLI `list-versions` | wrap | a second job catalog | `path:internal/revanced/jobs.go` |
 | TEC-04 isolate | workspaced `taskgroup` Isolate / Map | adopt | a sequential side path for package work | `path:internal/app/pipeline.go` |
@@ -127,7 +132,7 @@ Grammar: `revancedbot <command> [REPO]`. Persistent flags: `--cache` (empty → 
 | `fdroid-init REPO` | Repo | seed stage, write stage `config.yml`, publish layout | missing AuthorityDoc, bad SigningBlob, publish fail → exit 1 |
 | `fdroid-update REPO` | Repo | seed stage, `fdroid update`, publish | missing AuthorityDoc, missing tools, `fdroid` fail, publish fail → exit 1 |
 | `fetch-tools REPO` | Cache | latest CLI jar + patches into Cache | resolve fail, download fail → exit 1 |
-| `download REPO` | Cache | one stock APK via TEC-03 | missing AuthorityDoc, missing `--package`, every downloader fails → exit 1 |
+| `download REPO` | Cache | one stock APK via TEC-03 | missing AuthorityDoc, missing `--package`, every downloader fails, identity fail after fetch → exit 1 |
 | `patch REPO` | Cache | TEC-05 on `--in` → `--out` | missing `--in` / `--out`, missing tools, CLI fail, `apksigner` fail → exit 1 |
 | `list-jobs REPO` | none (stdout) | TEC-04 print | tool fetch fail, parse fail → exit 1 |
 | `keys generate` | none (stdout) | TEC-06 print one line | missing `keytool` → exit 1 |
@@ -141,9 +146,9 @@ Grammar: `revancedbot <command> [REPO]`. Persistent flags: `--cache` (empty → 
 | Repo | entity | Operator path (positional) | Repo `(1,1)` — AuthorityDoc `(1,1)`; Repo `(1,1)` — PublishedPackage `(0,*)` | yes | INV-01, INV-02, INV-03, INV-08 |
 | AuthorityDoc | weak entity | `REPO/revancedbot.yaml` (Operator file) | AuthorityDoc `(1,1)` — Repo `(1,1)` | no | INV-03 |
 | PublishedPackage | weak entity | `(patched id, versionCode)` in `REPO/repo` | PublishedPackage `(1,1)` — Repo `(1,1)` | no | INV-04 |
-| Job | value | — (from current patches each run) | — | — | INV-05 |
+| Job | value | — (from current patches each run) | — | — | INV-05, INV-09 |
 | SigningBlob | value | `REVANCEDBOT_SIGNING` | SigningBlob `(1,1)` — Cache keystore `(0,1)` | — | INV-02, INV-08 |
-| Cache | value | `--cache` when set; a temporary directory when `--cache` is absent | Cache `(1,1)` — stage `(1,1)` | — | INV-01, INV-02 |
+| Cache | value | `--cache` when set; a temporary directory when `--cache` is absent | Cache `(1,1)` — stage `(1,1)` | — | INV-01, INV-02, INV-09 |
 
 ### Relationships
 
@@ -163,7 +168,7 @@ Cache is a workspace, not a second aggregate root. An explicit `--cache` path is
 | `downloaders` | ordered ids from the built-in set. Empty → `aptoide`, `apkpure`, `apkmirror` |
 | `pool_io`, `pool_cpu`, `pool_internet` | positive overrides. Omitted → workspaced defaults with Internet = 2 |
 | `log_level` | log verbosity |
-| `browser.cdp_url` | CDP URL. Empty is valid. Env `REVANCEDBOT_CDP_URL` wins when set |
+| `browser.cdp_url` | CDP URL. Empty is valid. Top-level `cdp_url` is accepted when this is empty. Env `REVANCEDBOT_CDP_URL` wins when set |
 
 ### SigningBlob fields
 
@@ -176,10 +181,10 @@ Cache is a workspace, not a second aggregate root. An explicit `--cache` path is
 | Repo argument | Positional on every command that names `REPO` |
 | `--cache` | Absent → create a temporary directory |
 | `--config` | When set, that file MUST exist and is the AuthorityDoc |
-| `REVANCEDBOT_SIGNING` | Required on `run`, `smoke`, `fdroid-init`, `fdroid-update`, `patch`, `keys validate` |
-| `GITHUB_TOKEN` | MAY be set for GitHub rate limits |
+| `REVANCEDBOT_SIGNING` | Required on `run`, `smoke`, `fdroid-init`, `fdroid-update`, `patch`, `keys validate`. `REVANCEDBOT_SIGNING_BLOB` is accepted when this is empty |
+| `GITHUB_TOKEN` | MAY be set for GitHub rate limits. `REVANCEDBOT_GITHUB_TOKEN` is accepted when this is empty |
 | Exit | 0 success. 1 any returned error. No other product codes |
-| stdout | `keys generate`: one blob line. `list-jobs`: `package_id` then tab then comma-separated versions. `download`: downloader id, tab, sha256, tab, path. Cache hit: `cache`, tab, path |
+| stdout | `keys generate`: one blob line. `list-jobs`: `package_id` then tab then comma-separated versions; empty version is the token `Any`. `download`: downloader id, tab, sha256, tab, path. Cache hit: `cache`, tab, path |
 | stderr | logs. While the TUI is active, Session routing matches workspaced |
 
 `revancedbot` sets `REVANCEDBOT_KEYSTORE_PASS` and `REVANCEDBOT_KEY_PASS` for the `fdroid` child only. Those names MUST NOT be committed.
@@ -196,6 +201,7 @@ Cache is a workspace, not a second aggregate root. An explicit `--cache` path is
 | INV-06 | Rod never launches a browser | TEC-03 | `launcher` package, local Chrome start |
 | INV-07 | ReVanced jars and patches are not inside this project’s release artifact | packaging | attach `.jar` / `.rvp` to GoReleaser |
 | INV-08 | The same SigningBlob signs patched APKs and the F-Droid index | SigningBlob | a second key for the index |
+| INV-09 | A kept stock APK has package id equal to the requested stock id. When a version was requested, versionName prefix-matches | Job, Cache | accept after ValidateAPK only; exact versionName |
 
 ## Errors
 
@@ -211,6 +217,9 @@ Cache is a workspace, not a second aggregate root. An explicit `--cache` path is
 | `fetch-tools REPO` | resolve fail, download fail | exit 1 |
 | `download REPO` | missing AuthorityDoc, missing `--package` | exit 1 |
 | `download REPO` | every downloader fails (including give-up without CDP) | exit 1 |
+| `download REPO` | identity fail after fetch | exit 1; delete the file |
+| `download REPO` | Cache hit fails identity | delete the file; fetch again |
+| stock identity | package id mismatch, or requested version does not prefix-match | delete the file; that version fails |
 | `patch REPO` | missing flags, CLI fail, `apksigner` fail | exit 1 |
 | `list-jobs REPO` | fetch fail, parse fail | exit 1 |
 | `keys generate` | missing `keytool` | exit 1; no stdout blob |
@@ -243,7 +252,7 @@ Cache is a workspace, not a second aggregate root. An explicit `--cache` path is
 | Concern | Measure. If none, why it cannot happen |
 |---------|----------------------------------|
 | Exit contract | `cmd/revancedbot/main.go` maps any returned error to exit 1. TEC-02 names the skip and empty-success cases. Tests can assert those exits |
-| Untrusted input | Store HTML and APK bodies are untrusted. ValidateAPK is the gate. A bad SigningBlob refuses to start. No Play-certificate check (non-goal 9) |
+| Untrusted input | Store HTML and APK bodies are untrusted. ValidateAPK then stock identity (INV-09). A bad SigningBlob refuses to start. No Play-certificate check (non-goal 9) |
 
 ## Security
 
@@ -256,7 +265,7 @@ In scope:
 
 Why “no security” cannot be claimed: `revancedbot` handles a signing secret and writes installable APKs.
 
-Residual risk: a hostile store can still serve a real APK for the requested stock id. This project trusts the store for identity after ValidateAPK.
+Residual risk: a hostile store can still serve a real APK whose package id matches the requested stock id (and whose versionName prefix-matches, when a version was requested).
 
 ## Success
 
@@ -267,6 +276,8 @@ Residual risk: a hostile store can still serve a real APK for the requested stoc
 - [ ] `smoke` exits 1 when zero packages succeed.
 - [ ] `run` with no `REPO/revancedbot.yaml` and no `--config` exits 1.
 - [ ] ValidateAPK rejects an HTML body.
+- [ ] `download` of an APK whose package id is not the requested stock id exits 1 and does not keep the file.
+- [ ] `keys generate` does not accept `--alias`.
 - [ ] `revancedbot` does not write `revancedbot.yaml`.
 - [ ] No keystore file exists under Repo after a successful run.
 - [ ] The process does not start a local Chrome (INV-06).
@@ -285,7 +296,7 @@ Residual risk: a hostile store can still serve a real APK for the requested stoc
 |----|------|----------|
 | AS-01 | ReVanced CLI `list-versions` text remains parseable as Jobs | `list-jobs` and `run` fail closed until the parser changes |
 | AS-02 | A host can put `java`, `keytool`, `fdroid`, `apksigner`, and `aapt` on `PATH` | preflight fails with a missing-tool list |
-| AS-03 | Latest patches are reachable via GitLab tags, then GitHub assets, then a known mirror, then `REVANCEDBOT_PATCHES_*` overrides | `fetch-tools` fails; no silent old patches |
+| AS-03 | Latest patches are reachable via `REVANCEDBOT_PATCHES_FILE`, then `REVANCEDBOT_PATCHES_URL`, then GitLab tags, then GitHub assets, then a known mirror | `fetch-tools` fails; no silent old patches |
 | AS-04 | An Operator who wants the rod upgrade can reach a CDP URL from the `revancedbot` process | downloaders that need a browser give up; others continue |
 
 ## Decision history
@@ -298,3 +309,5 @@ Residual risk: a hostile store can still serve a real APK for the requested stoc
 - Rod connects to an Operator CDP URL only, same as fusionsolar-bot. Rejected: in-process launcher; require CDP for `revancedbot` to start.
 - Missing AuthorityDoc refuses `run`, `smoke`, `fdroid-init`, `fdroid-update`, and `download`. Rejected: hidden built-in defaults for those commands.
 - Version numbers live in `go.mod` and `mise.toml`. Rejected: copied pins in this file.
+- Stock identity after ValidateAPK: stock id match and versionName prefix. Same gate on `download`. Rejected: ValidateAPK-only; Play-certificate identity; exact versionName.
+- `keys generate` has no `--alias`; blob alias is `revancedbot`. Rejected: operator `--alias` flag.
